@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🎡 Колесо фортуны — олимпиада «Я — профессионал»</title>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<style>
+/* ===== РАЗДЕЛ: СТИЛИ ===== */
+:root{
+  --bg:#101423; --panel:#1a2036; --panel2:#232b47; --text:#eef1fb; --muted:#9aa3c0;
+  --accent:#ffcc4d; --accent2:#ff6b6b; --ok:#4dd599; --blue:#5a8bff;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+body{background:var(--bg); color:var(--text); font-family:'Segoe UI',Arial,sans-serif; min-height:100vh}
+.hidden{display:none !important}
+
+/* Кнопки */
+.btn{border:none; border-radius:12px; padding:11px 18px; font-size:16px; font-weight:600; cursor:pointer;
+  background:var(--panel2); color:var(--text); transition:.18s; margin:3px}
+.btn:hover{transform:translateY(-2px); filter:brightness(1.15)}
+.btn:active{transform:translateY(0)}
+.btn-primary{background:linear-gradient(135deg,#ffcc4d,#ff9f43); color:#20160a}
+.btn-danger{background:linear-gradient(135deg,#ff6b6b,#ee5253); color:#fff}
+.btn-ok{background:linear-gradient(135deg,#4dd599,#38ada9); color:#0c2018}
+.btn-ghost{background:transparent; border:1px solid #3a4568}
+input,select,textarea{background:var(--panel2); color:var(--text); border:1px solid #3a4568; border-radius:10px;
+  padding:10px 12px; font-size:15px; font-family:inherit}
+textarea{width:100%; min-height:90px; resize:vertical; font-size:13px}
+input:focus,textarea:focus{outline:2px solid var(--accent)}
+
+/* Экран входа */
+.login-screen{display:flex; align-items:center; justify-content:center; min-height:100vh; padding:20px}
+.login-card{background:var(--panel); border-radius:20px; padding:36px; max-width:460px; width:100%;
+  text-align:center; box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.login-card h1{font-size:28px; margin-bottom:12px}
+.login-card p{color:var(--muted); margin-bottom:20px; line-height:1.5}
+.login-card input{width:100%; text-align:center; font-size:20px; letter-spacing:6px; margin-bottom:12px}
+.login-row{display:flex; gap:8px; margin-top:8px}
+.login-row .btn{flex:1}
+.join-fields{margin-top:12px}
+.join-fields input{margin-bottom:8px; letter-spacing:normal; font-size:15px}
+
+/* Хедер */
+header{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
+  padding:14px 22px; background:var(--panel); box-shadow:0 2px 14px rgba(0,0,0,.35); position:sticky; top:0; z-index:50}
+header h1{font-size:22px}
+.badge{padding:4px 12px; border-radius:20px; font-size:13px; font-weight:700}
+.badge-host{background:var(--accent); color:#20160a}
+.badge-guest{background:var(--panel2); color:var(--muted)}
+.badge-part{background:var(--ok); color:#0c2018}
+.room-chip{background:var(--panel2); border-radius:20px; padding:5px 14px; font-size:14px}
+.room-chip b{color:var(--accent); letter-spacing:2px; font-size:16px}
+.dot{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px}
+.dot-on{background:var(--ok)} .dot-off{background:var(--accent2)}
+
+/* Основная сетка */
+main{display:grid; grid-template-columns:1.4fr 1fr; gap:20px; padding:20px; max-width:1280px; margin:0 auto}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+.card{background:var(--panel); border-radius:16px; padding:20px; box-shadow:0 6px 24px rgba(0,0,0,.3)}
+.card h3{margin-bottom:12px; font-size:17px}
+.center{text-align:center}
+.muted{color:var(--muted); font-size:13px}
+
+/* Колесо */
+.wheel-wrap{position:relative; display:flex; justify-content:center}
+canvas{max-width:100%}
+#plaque{margin-top:14px; font-size:26px; font-weight:800; color:var(--accent); min-height:36px;
+  opacity:0; transition:.4s; text-align:center}
+#plaque.show{opacity:1}
+.hint-empty{color:var(--muted); padding:40px 10px; text-align:center}
+
+/* Таймер */
+.timer-box{display:flex; align-items:center; gap:18px; justify-content:center; flex-wrap:wrap}
+.timer-ring{position:relative; width:130px; height:130px}
+.timer-ring svg{transform:rotate(-90deg)}
+.timer-num{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-size:30px; font-weight:800}
+.timer-num.warn{color:var(--accent2); animation:blink .5s infinite}
+@keyframes blink{50%{opacity:.35}}
+
+/* Рейтинг */
+table{width:100%; border-collapse:collapse}
+th,td{padding:8px 6px; text-align:left; border-bottom:1px solid #2a3354; font-size:15px}
+th{color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.5px}
+.score-btn{width:30px; height:30px; border-radius:8px; font-weight:800; cursor:pointer; border:none}
+.plus{background:#2e4a3b; color:var(--ok)} .minus{background:#4a2e33; color:var(--accent2)}
+tr.leader td{color:var(--accent); font-weight:700}
+.record-row{display:flex; gap:6px; margin-top:12px; align-items:center; flex-wrap:wrap}
+.record-row input{width:110px}
+.record-row input.num{width:70px}
+#recordBoard{margin-top:10px; font-size:15px; color:var(--accent)}
+
+/* Панель ведущего */
+.host-panel{grid-column:1/-1}
+.acc-btn{width:100%; text-align:left; background:var(--panel2); border:none; color:var(--text);
+  padding:14px 18px; border-radius:12px; font-size:16px; font-weight:600; cursor:pointer; margin-top:10px}
+.acc-body{padding:14px 6px 4px; display:none}
+.acc-open .acc-body{display:block}
+.steps li{margin:8px 0 8px 18px; line-height:1.55; color:var(--muted)}
+
+/* Модалки */
+.overlay{position:fixed; inset:0; background:rgba(6,8,16,.82); display:flex; align-items:center;
+  justify-content:center; z-index:100; padding:16px}
+.modal{background:var(--panel); border-radius:20px; padding:28px; max-width:640px; width:100%;
+  text-align:center; box-shadow:0 24px 80px rgba(0,0,0,.6); animation:pop .25s ease; max-height:90vh; overflow:auto}
+@keyframes pop{from{transform:scale(.85); opacity:0}}
+.modal h2{margin-bottom:14px}
+.task-big{font-size:30px; font-weight:800; line-height:1.3; margin:14px 0; color:var(--accent)}
+.task-note{color:var(--muted); margin-bottom:12px}
+.banned{background:#3a2530; border-radius:10px; padding:10px; margin:10px 0; color:#ffb3b3}
+.hidden-plaque{font-size:34px; padding:30px 10px; background:var(--panel2); border-radius:14px; margin:12px 0}
+.status-line{color:var(--ok); font-size:15px; min-height:22px}
+.answer-line{font-size:26px; font-weight:800; color:var(--ok); margin:10px 0}
+.wheel-mini-note{color:var(--muted); font-size:13px; margin-top:8px}
+
+/* Баннер связи */
+#netBanner{position:fixed; left:0; right:0; bottom:0; background:var(--accent2); color:#fff;
+  text-align:center; padding:10px; font-weight:600; z-index:90}
+
+/* Тост */
+#toast{position:fixed; top:70px; left:50%; transform:translateX(-50%); background:var(--accent);
+  color:#20160a; padding:10px 22px; border-radius:24px; font-weight:700; z-index:200; opacity:0; transition:.3s}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<!-- ===== РАЗДЕЛ: ЭКРАН ВХОДА ===== -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <h1>🎡 Колесо фортуны</h1>
+    <p>🔐 Режим ведущего. Введите PIN, чтобы управлять игрой.<br>Участники и зрители могут смотреть без PIN.</p>
+    <input id="pinInput" type="password" placeholder="PIN" inputmode="numeric">
+    <button class="btn btn-primary" style="width:100%" onclick="loginHost()">Войти</button>
+    <div class="login-row">
+      <button class="btn btn-ghost" onclick="showJoin('guest')">Смотреть как гость</button>
+      <button class="btn btn-ghost" onclick="showJoin('participant')">Войти как участник</button>
+    </div>
+    <div id="joinFields" class="join-fields hidden">
+      <input id="roomJoin" placeholder="Код комнаты (например K7FL2)">
+      <input id="nameJoin" placeholder="Ваше имя">
+      <button class="btn btn-ok" style="width:100%" onclick="joinRoom()">Подключиться</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== РАЗДЕЛ: ПРИЛОЖЕНИЕ ===== -->
+<div id="app" class="hidden">
+  <header>
+    <h1>🎡 Колесо фортуны</h1>
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+      <span class="room-chip hidden" id="roomChip">Комната <b id="roomCodeText"></b> <button class="btn" style="padding:2px 8px; font-size:11px" onclick="regenRoom()">Новый код</button></span>
+      <span id="statusChip"><span class="dot dot-off"></span>Нет связи</span>
+      <span class="badge badge-guest" id="roleBadge">Гость</span>
+      <button class="btn hidden" id="logoutBtn" onclick="logout()">Выйти из режима ведущего</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Колесо -->
+    <div class="card">
+      <div class="wheel-wrap"><canvas id="wheel" width="420" height="420"></canvas></div>
+      <div id="wheelHint" class="hint-empty">Добавьте участников в панели ведущего</div>
+      <div class="center" style="margin-top:12px">
+        <button class="btn btn-primary host-only hidden" style="font-size:20px; padding:14px 40px" onclick="spin()">🎰 Крутить</button>
+        <p class="muted" id="preSpinText" style="margin-top:8px">Нажмите «Крутить»</p>
+      </div>
+      <div id="plaque"></div>
+      <div class="center">
+        <p class="muted">Направление:
+          <select id="dirSel" class="host-only hidden">
+            <option value="cw">По часовой</option>
+            <option value="ccw">Против часовой</option>
+          </select>
+          <span id="dirLabel" class="host-less">по часовой</span>
+        </p>
+        <p class="muted">Игра:
+          <select id="gameSel" class="host-only hidden">
+            <option value="term">Объясни термин (30 сек)</option>
+            <option value="category">Назови как можно больше из категории (60 сек)</option>
+            <option value="anagram">Расшифруй перемешанное</option>
+          </select>
+          <span id="gameLabel" class="host-less">Объясни термин (30 сек)</span>
+        </p>
+        <button class="btn btn-primary host-only hidden" onclick="dealTask()">🎲 Выдать задание</button>
+        <button class="btn btn-ghost host-only hidden" onclick="openSecret()">🔑 Секретная панель</button>
+      </div>
+    </div>
+
+    <!-- Таймер + рейтинг -->
+    <div>
+      <div class="card" style="margin-bottom:20px">
+        <h3 class="center">⏱ Таймер</h3>
+        <div class="timer-box">
+          <div class="timer-ring">
+            <svg width="130" height="130">
+              <circle cx="65" cy="65" r="54" fill="none" stroke="#2a3354" stroke-width="10"/>
+              <circle id="ring" cx="65" cy="65" r="54" fill="none" stroke="#ffcc4d" stroke-width="10"
+                stroke-linecap="round" stroke-dasharray="339.3" stroke-dashoffset="0"/>
+            </svg>
+            <div class="timer-num" id="timerNum">00:30</div>
+          </div>
+          <div>
+            <div>
+              <button class="btn host-only hidden" onclick="hostTimerStart(30)">30 сек</button>
+              <button class="btn host-only hidden" onclick="hostTimerStart(60)">60 сек</button>
+              <button class="btn host-only hidden" id="pauseBtn" onclick="hostTimerPause()">⏸</button>
+              <button class="btn host-only hidden" onclick="hostTimerReset()">⟲</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🏆 Рейтинг участников</h3>
+        <button class="btn btn-ghost host-only hidden" onclick="exportCSV()">⬇ CSV</button>
+        <button class="btn btn-ghost host-only hidden" onclick="resetScores()">Сброс баллов</button>
+        <div style="margin-top:10px; overflow-x:auto">
+          <table>
+            <thead><tr><th>Участник</th><th>Баллы</th><th class="host-only hidden">±</th></tr></thead>
+            <tbody id="scoreBody"></tbody>
+          </table>
+        </div>
+        <div class="record-row host-only hidden">
+          <input id="recName" placeholder="Имя">
+          <input id="recNum" class="num" type="number" min="0" placeholder="Кол-во">
+          <button class="btn" onclick="setRecord()">🏆 Записать рекорд</button>
+        </div>
+        <div id="recordBoard">🏅 Рекорд недели: —</div>
+      </div>
+    </div>
+
+    <!-- ===== РАЗДЕЛ: ПАНЕЛЬ ВЕДУЩЕГО ===== -->
+    <div class="card host-panel host-only hidden">
+      <h3>⚙️ Панель ведущего</h3>
+
+      <button class="acc-btn" onclick="toggleAcc(this)">Участники (по одному в строке)</button>
+      <div class="acc-body">
+        <textarea id="namesArea" placeholder="Иван&#10;Мария&#10;Пётр"></textarea>
+        <button class="btn btn-primary" onclick="applyNames()">Применить список</button>
+        <p class="muted" id="onlineList" style="margin-top:8px">👥 В комнате: пока никто</p>
+      </div>
+
+      <button class="acc-btn" onclick="toggleAcc(this)">Банк карточек</button>
+      <div class="acc-body">
+        <p class="muted">Термины: <code>Слово | запрет1, запрет2</code> (по одному в строке).</p>
+        <textarea id="termsArea"></textarea>
+        <p class="muted">Категории: по одной в строке.</p>
+        <textarea id="catsArea"></textarea>
+        <p class="muted">Анаграммы: <code>[уровень] ШИФР = ОТВЕТ</code>.</p>
+        <textarea id="anagArea"></textarea>
+        <button class="btn btn-primary" onclick="saveBank()">Сохранить банк</button>
+        <button class="btn" onclick="resetUsed()">🔄 Сбросить использованные карточки</button>
+        <p class="muted" id="bankCounts"></p>
+      </div>
+
+      <button class="acc-btn" onclick="toggleAcc(this)">Смена PIN</button>
+      <div class="acc-body">
+        <input id="oldPin" type="password" placeholder="Старый PIN" style="width:160px">
+        <input id="newPin" type="password" placeholder="Новый PIN" style="width:160px">
+        <button class="btn" onclick="changePin()">Сменить PIN</button>
+      </div>
+
+      <button class="acc-btn" onclick="toggleAcc(this)">Как проводить</button>
+      <div class="acc-body">
+        <ol class="steps">
+          <li>Разошлите ссылку на сайт участникам заранее.</li>
+          <li>Войдите по PIN и покажите залу код комнаты (кнопка «Новый код» меняет его перед эфиром).</li>
+          <li>Участники вводят код и своё имя — они появятся в списке и на колесе.</li>
+          <li>Крутите колесо — выпадает участник.</li>
+          <li>«Выдать задание»: термин всплывёт только у выпавшего участника и у вас; зал видит лишь надпись «задание отправлено». Категория и анаграмма открываются на общем экране.</li>
+          <li>Таймер и кнопки «Готово»/«Пас» синхронизированы.</li>
+          <li>Баллы ставьте в таблице справа: очко объясняющему и угадавшему.</li>
+        </ol>
+        <p class="steps muted">Советы: попросите участников проверить связь до эфира; скриншот выпавшего сектора — доказательство честности; ведите рекорды на табло; награждайте на закрытии номинациями «Мастер объяснений» и «Рекордсмен скорости». Помните: любой, кто знает код комнаты, может подключиться как «участник» — меняйте код перед эфиром.</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ===== РАЗДЕЛ: МОДАЛКИ ===== -->
+<div id="taskOverlay" class="overlay hidden">
+  <div class="modal" id="taskModal"></div>
+</div>
+<div id="toast"></div>
+<div id="netBanner" class="hidden">Нет связи с брокером — задания-термины недоступны, остальные игры работают</div>
+
+<script>
+/* ===== РАЗДЕЛ: ХРАНИЛИЩЕ ===== */
+const $=id=>document.getElementById(id);
+const lsGet=(k,d)=>{try{const v=localStorage.getItem(k);return v===null?d:JSON.parse(v)}catch(e){return d}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)}
+
+/* ===== РАЗДЕЛ: ДАННЫЕ (БАНК КАРТОЧЕК ПО УМОЛЧАНИЮ) ===== */
+const DEFAULT_TERMS=[
+['СТРОИТЕЛЬСТВО','Фундамент','фундаментальный'],['СТРОИТЕЛЬСТВО','Арматура','арматурный'],
+['СТРОИТЕЛЬСТВО','Опалубка','опалубочный'],['СТРОИТЕЛЬСТВО','Перекрытие','крыть'],
+['СТРОИТЕЛЬСТВО','Стропильная система','стропила'],['СТРОИТЕЛЬСТВО','Гидроизоляция','вода, гидро, изоляция'],
+['СТРОИТЕЛЬСТВО','Свая','свайный'],['СТРОИТЕЛЬСТВО','Цоколь','цокольный'],
+['СТРОИТЕЛЬСТВО','Мауэрлат',''],['СТРОИТЕЛЬСТВО','Прогиб','гнуть'],
+['СТРОИТЕЛЬСТВО','Эпюра',''],['СТРОИТЕЛЬСТВО','Смета','сметать'],
+['СТРОИТЕЛЬСТВО','Монолит','монолитный'],['СТРОИТЕЛЬСТВО','Вентфасад','вентиляция'],
+['СТРОИТЕЛЬСТВО','Осадка здания','садиться'],
+['УРБАНИСТИКА','Агломерация','агломерационный'],['УРБАНИСТИКА','Редевелопмент','девелопмент, развитие'],
+['УРБАНИСТИКА','Джентрификация',''],['УРБАНИСТИКА','Тактический урбанизм','урбанистика'],
+['УРБАНИСТИКА','Пешеходная доступность','ходить, пешком'],['УРБАНИСТИКА','Общественное пространство','сквер, парк'],
+['УРБАНИСТИКА','Плотность застройки','плотный'],['УРБАНИСТИКА','Генплан','план'],
+['УРБАНИСТИКА','Благоустройство','благо, устройство'],['УРБАНИСТИКА','Велоинфраструктура','велосипед'],
+['УРБАНИСТИКА','Полицентричность','центр'],['УРБАНИСТИКА','Зонирование','зона'],
+['УРБАНИСТИКА','Променад','гулять'],['УРБАНИСТИКА','Точечная застройка','точка'],
+['УРБАНИСТИКА','Уличная сеть','улица, сеть'],
+['ЮРИСПРУДЕНЦИЯ','Прецедент',''],['ЮРИСПРУДЕНЦИЯ','Иск','искать'],
+['ЮРИСПРУДЕНЦИЯ','Дееспособность','способность'],['ЮРИСПРУДЕНЦИЯ','Презумпция невиновности','виновен'],
+['ЮРИСПРУДЕНЦИЯ','Оферта','оферты'],['ЮРИСПРУДЕНЦИЯ','Акцепт','акцептовать'],
+['ЮРИСПРУДЕНЦИЯ','Юрисдикция','юрист'],['ЮРИСПРУДЕНЦИЯ','Алиби',''],
+['ЮРИСПРУДЕНЦИЯ','Апелляция','апеллировать'],['ЮРИСПРУДЕНЦИЯ','Кассация',''],
+['ЮРИСПРУДЕНЦИЯ','Мораторий',''],['ЮРИСПРУДЕНЦИЯ','Амнистия',''],
+['ЮРИСПРУДЕНЦИЯ','Наследство','наследовать'],['ЮРИСПРУДЕНЦИЯ','Истец','искать'],
+['ЮРИСПРУДЕНЦИЯ','Устав',''],
+['ДИЗАЙН','Композиция',''],['ДИЗАЙН','Колористика','цвет'],
+['ДИЗАЙН','Контраст',''],['ДИЗАЙН','Ритм',''],
+['ДИЗАЙН','Типографика','шрифт'],['ДИЗАЙН','Кернинг',''],
+['ДИЗАЙН','Вёрстка','верстать'],['ДИЗАЙН','Мокап','макет'],
+['ДИЗАЙН','Мудборд','настроение'],['ДИЗАЙН','Брендбук','бренд, книга'],
+['ДИЗАЙН','Логотип','логотипический'],['ДИЗАЙН','Гештальт',''],
+['ДИЗАЙН','Негативное пространство','пустота'],['ДИЗАЙН','Лендинг',''],
+['ДИЗАЙН','Палитра',''],
+['ЭКОНОМИКА','Инфляция','инфляционный'],['ЭКОНОМИКА','Монополия','монополист'],
+['ЭКОНОМИКА','Маржа','маржинальный'],['ЭКОНОМИКА','Дивиденд','дивидендный'],
+['ЭКОНОМИКА','Дефолт',''],['ЭКОНОМИКА','Субсидия','субсидировать'],
+['ЭКОНОМИКА','Олигополия',''],['ЭКОНОМИКА','Девальвация','обесценение'],
+['ЭКОНОМИКА','Диверсификация',''],['ЭКОНОМИКА','Амортизация',''],
+['ЭКОНОМИКА','Лизинг',''],['ЭКОНОМИКА','Рента',''],
+['ЭКОНОМИКА','Франшиза',''],['ЭКОНОМИКА','Облигация',''],
+['ЭКОНОМИКА','Себестоимость','стоимость']
+];
+const DEFAULT_CATEGORIES=['Материалы для возведения стен','Виды фундаментов','Инструменты на стройплощадке','Строительные специальности','Элементы крыши','Причины трещин в стенах','Виды строительной техники','Единицы измерения на стройке','Этапы возведения дома','Документы в строительстве','Города-миллионники России','Элементы уличной инфраструктуры','Виды общественных пространств','Профессии в градостроительстве','Знаменитые площади мира','Проблемы мегаполисов','Виды общественного транспорта','Зелёные зоны города','Типы застройки','Города, основанные Петром I','Виды договоров','Юридические профессии','Ветви власти','Виды юридической ответственности','Этапы судебного процесса','Документы гражданина','Права, гарантированные Конституцией','Разделы Гражданского кодекса','Известные юристы России и мира','Латинские термины в праве','Графические редакторы','Цветовые модели','Известные шрифты','Стили и направления в дизайне','Элементы фирменного стиля','Профессии в дизайне','Известные дизайнеры и студии','Элементы пользовательского интерфейса','Инструменты дизайнера','Известные логотипы','Валюты мира','Виды налогов','Лауреаты Нобелевской премии по экономике','Виды рыночных структур','Источники дохода компании','Макроэкономические показатели','Профессии в финансах и экономике','Экономические термины на букву «Д»','Биржевые инструменты','Крупнейшие компании России'];
+const DEFAULT_ANAGRAMS=[
+['[лёгкий] КОПЕС = ПЕСОК','[лёгкий] НЕМЕЦТ = ЦЕМЕНТ','[средний] КОЛЬЦО = ЦОКОЛЬ (ловушка: читается как настоящее слово)','[средний] ТРУМАРАА = АРМАТУРА','[средний] БУЛКАПОА = ОПАЛУБКА','[сложный] ДАМЕНТУФН = ФУНДАМЕНТ','[лёгкий, порядок слов] ФУНДАМЕНТА С ДОМ НАЧИНАЕТСЯ = ДОМ НАЧИНАЕТСЯ С ФУНДАМЕНТА','[средний, порядок слов] ВОДА ПЕСОК ЩЕБЕНЬ ЦЕМЕНТ = ЦЕМЕНТ ПЕСОК ЩЕБЕНЬ ВОДА (состав бетона)','[лёгкий, порядок слов] РАЗ ОТМЕРЬ СЕМЬ ОДИН ОТРЕЖЬ = СЕМЬ РАЗ ОТМЕРЬ — ОДИН ОТРЕЖЬ'],
+['[лёгкий] ДРОГО = ГОРОД','[лёгкий] ЦАУЛИ = УЛИЦА','[средний] ЙОНАР = РАЙОН','[средний] АЛКВАРТ = КВАРТАЛ','[сложный] АРЛОИМАЯЦЕГ = АГЛОМЕРАЦИЯ','[средний, порядок слов] МАШИН ДЛЯ ГОРОД ЛЮДЕЙ, А НЕ ДЛЯ = ГОРОД ДЛЯ ЛЮДЕЙ, А НЕ ДЛЯ МАШИН (манифест урбаниста)','[средний, порядок слов] УЛИЦА ПЕШЕХОДАМ ПРИНАДЛЕЖИТ = УЛИЦА ПРИНАДЛЕЖИТ ПЕШЕХОДАМ (принцип Яна Гейла)','[средний, порядок слов] МИНУТАХ ВСЁ НУЖНОЕ 15 В = ВСЁ НУЖНОЕ — В 15 МИНУТАХ (концепция 15-минутного города)'],
+['[лёгкий] СКИ = ИСК (разминка)','[средний] ФОРТАЕ = ОФЕРТА (почти форт)','[средний] БАЛИИ = АЛИБИ (почти Бали)','[сложный] ДЕНТЕРЦЕП = ПРЕЦЕДЕНТ','[сложный] УМПРЕЗПЦИЯ = ПРЕЗУМПЦИЯ','[лёгкий, порядок слов] ЗАКОНА НЕЗНАНИЕ НЕ ОСВОБОЖДАЕТ = НЕЗНАНИЕ ЗАКОНА НЕ ОСВОБОЖДАЕТ','[средний, порядок слов] ОБРАТНОЙ СИЛЫ ЗАКОНА ДЕЙСТВИЕ НЕ ИМЕЕТ = ДЕЙСТВИЕ ЗАКОНА НЕ ИМЕЕТ ОБРАТНОЙ СИЛЫ'],
+['[лёгкий] ТРИМ = РИТМ','[средний] ПАКОМ = МОКАП (месье Паком)','[средний] ПОЛОГИТ = ЛОГОТИП','[сложный] ГНЕРИКН = КЕРНИНГ','[лёгкий, порядок слов] ЗНАЧИТ МЕНЬШЕ БОЛЬШЕ = МЕНЬШЕ — ЗНАЧИТ БОЛЬШЕ (принцип минимализма)','[средний, порядок слов] ФУНКЦИЕЙ ЗА СЛЕДУЕТ ФОРМА = ФОРМА СЛЕДУЕТ ЗА ФУНКЦИЕЙ'],
+['[лёгкий] СОПРС = СПРОС','[лёгкий] ЛГОНА = НАЛОГ','[средний] ЖАМРА = МАРЖА','[средний] ЦИЯКА = АКЦИЯ','[сложный] ИИРИКЦВИЕСЯАДФ = ДИВЕРСИФИКАЦИЯ','[средний, порядок слов] ИЗДЕРЖКИ ВЫРУЧКА РАВНО ПРИБЫЛЬ МИНУС = ВЫРУЧКА МИНУС ИЗДЕРЖКИ РАВНО ПРИБЫЛЬ (формула прибыли)','[лёгкий, порядок слов] РОЖДАЕТ ПРЕДЛОЖЕНИЕ СПРОС = СПРОС РОЖДАЕТ ПРЕДЛОЖЕНИЕ (хитрость: работает и в обратном порядке)','[лёгкий, порядок слов] СЧЁТ ДЕНЬГИ ЛЮБЯТ = ДЕНЬГИ ЛЮБЯТ СЧЁТ (поговорка)']
+];
+const TOPIC_LABELS=['Строительство','Урбанистика','Юриспруденция','Дизайн','Экономика'];
+// Формат: [тема, шифр, ответ, уровень, подсказка]
+let ANAGRAMS=[];
+DEFAULT_ANAGRAMS.forEach((arr,i)=>{
+  arr.forEach(s=>{
+    const m=s.match(/^\[([^\]]+)\]\s*(.+?)\s*=\s*(.+)$/);
+    if(m){
+      const level=m[1].includes('порядок слов')?'слова':m[1];
+      let answer=m[3].trim(), note='';
+      const nm=answer.match(/^(.*?)\s*\((.*)\)\s*$/);
+      if(nm){answer=nm[1]; note=nm[2];}
+      ANAGRAMS.push({topic:TOPIC_LABELS[i], level:m[1].trim(), isPhrase:m[1].includes('порядок слов'), code:m[2].trim(), answer, note});
+    }
+  });
+});
+const TERMS=DEFAULT_TERMS.map(t=>({topic:t[0],term:t[1],banned:t[2]?t[2].split(',').map(x=>x.trim()).filter(Boolean):[]}));
+const CATEGORIES=DEFAULT_CATEGORIES.map((c,i)=>({topic:i<10?'Строительство':i<20?'Урбанистика':i<30?'Юриспруденция':i<40?'Дизайн':'Экономика', name:c}));
+
+/* ===== РАЗДЕЛ: СОСТОЯНИЕ ===== */
+const CLIENT_ID=Math.random().toString(36).slice(2,10);
+let S={
+  role:null, room:'', myName:'', connected:false,
+  participants:lsGet('wof_participants',[]),          // {name,score}
+  usedTerms:lsGet('wof_usedTerms',[]),
+  usedCats:lsGet('wof_usedCats',[]),
+  usedAnags:lsGet('wof_usedAnags',[]),
+  sessionLog:[], passes:{}, connections:{}, online:{},   // cid -> имя; online: cid -> {name,role,ts}
+  direction:lsGet('wof_dir','cw'),
+  lastWinnerName:null, lastGameKind:null, lastCard:null,
+  record:lsGet('wof_record',null)
+};
+let wheelRot=0, highlightIdx=-1, spinAnim=null;
+
+/* ===== РАЗДЕЛ: ВХОД И РОЛИ ===== */
+function loginHost(){
+  const pin=$('pinInput').value.trim();
+  if(pin!==lsGet('wof_pin','0000')){toast('Неверный PIN'); return;}
+  S.role='host'; startApp();
+  // Код комнаты
+  S.room=lsGet('wof_room','')||genRoom();
+  lsSet('wof_room',S.room);
+  mqttConnect();
+  renderRoleUI();
+}
+function showJoin(mode){
+  S.role=mode; $('joinFields').classList.remove('hidden');
+}
+function joinRoom(){
+  S.room=($('roomJoin').value||'').toUpperCase().trim();
+  S.myName=($('nameJoin').value||'').trim();
+  if(!/^[A-Z0-9]{4,8}$/.test(S.room)){toast('Введите код комнаты (4–8 символов)'); return;}
+  if(S.role==='participant'&&!S.myName){toast('Введите имя'); return;}
+  startApp(); mqttConnect(); renderRoleUI();
+}
+function logout(){
+  if(S.role==='host') pub({t:'bye'});
+  location.reload();
+}
+function startApp(){
+  $('loginScreen').classList.add('hidden');
+  $('app').classList.remove('hidden');
+}
+function renderRoleUI(){
+  const b=$('roleBadge');
+  if(S.role==='host'){b.textContent='Ведущий'; b.className='badge badge-host';
+    $('logoutBtn').classList.remove('hidden');
+    document.querySelectorAll('.host-only').forEach(e=>e.classList.remove('hidden'));
+    document.querySelectorAll('.host-less').forEach(e=>e.classList.add('hidden'));
+    $('roomChip').classList.remove('hidden'); $('roomCodeText').textContent=S.room;
+    $('namesArea').value=S.participants.map(p=>p.name).join('\n');
+    renderOnline();
+  }else if(S.role==='participant'){b.textContent='Участник'; b.className='badge badge-part';
+    $('roomChip').classList.remove('hidden'); $('roomCodeText').textContent=S.room;
+  }else{b.textContent='Гость'; b.className='badge badge-guest';
+    if(S.room){$('roomChip').classList.remove('hidden'); $('roomCodeText').textContent=S.room;}
+  }
+  $('dirSel').value=S.direction;
+  refreshBankCounts(); renderScores(); drawWheel();
+}
+function regenRoom(){
+  S.room=genRoom(); lsSet('wof_room',S.room);
+  $('roomCodeText').textContent=S.room;
+  toast('Новый код: '+S.room+' — попросите участников перезайти');
+}
+function genRoom(){
+  const abc='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s='';
+  for(let i=0;i<5;i++) s+=abc[Math.floor(Math.random()*abc.length)];
+  return s;
+}
+
+/* ===== РАЗДЕЛ: СИНХРОНИЗАЦИЯ РЕАЛЬНОГО ВРЕМЕНИ ===== */
+let mqttClient=null;
+const brokerURL='wss://broker.emqx.io:8084/mqtt';
+function mqttConnect(){
+  if(typeof mqtt==='undefined'){updateStatus(false); return;}
+  try{
+    mqttClient=mqtt.connect(brokerURL,{clientId:'wof_'+S.role+'_'+CLIENT_ID,clean:true,reconnectPeriod:3000,connectTimeout:8000});
+    mqttClient.on('connect',()=>{updateStatus(true);
+      mqttClient.subscribe(topics()+S.room+'/events',{qos:0});
+      mqttClient.subscribe(topics()+S.room+'/p/'+CLIENT_ID,{qos:0});
+      if(S.role==='participant') pub({t:'join',name:S.myName,cid:CLIENT_ID});
+      if(S.role==='host'){pub({t:'participants',names:S.participants.map(p=>p.name)}); pub({t:'whois'});}
+      pub({t:'scores',list:S.participants},{skipRole:'host'});
+      pub({t:'presence',name:S.role==='host'?'Ведущий':S.myName,role:S.role,cid:CLIENT_ID});
+    });
+    mqttClient.on('reconnect',()=>updateStatus(false));
+    mqttClient.on('close',()=>updateStatus(false));
+    mqttClient.on('offline',()=>updateStatus(false));
+    mqttClient.on('error',()=>updateStatus(false));
+    mqttClient.on('message',(topic,msg)=>{
+      let m; try{m=JSON.parse(msg.toString())}catch(e){return}
+      if(m.fromId===CLIENT_ID) return;
+      if(topic.endsWith('/p/'+CLIENT_ID)) onPrivate(m);
+      else onEvent(m);
+    });
+  }catch(e){updateStatus(false)}
+}
+function topics(){return 'wofgame/'+S.room}
+function pub(obj,opt={}){
+  if(!mqttClient||!S.room) return;
+  if(opt.to){mqttClient.publish(topics()+'/p/'+opt.to,JSON.stringify({...obj,fromId:CLIENT_ID}));}
+  else mqttClient.publish(topics()+'/events',JSON.stringify({...obj,fromId:CLIENT_ID}));
+}
+function startHeartbeat(){
+  if(startHeartbeat.done) return; startHeartbeat.done=true;
+  setInterval(()=>{
+    if(mqttClient&&S.room&&S.connected)
+      pub({t:'presence',name:S.role==='host'?'Ведущий':S.myName,role:S.role,cid:CLIENT_ID});
+    const now=Date.now(); let changed=false;
+    for(const c in S.online){ if(now-S.online[c].ts>15000){delete S.online[c]; changed=true;} }
+    if(changed) renderOnline();
+  },5000);
+}
+startHeartbeat();
+function updateStatus(on){
+  S.connected=on;
+  $('statusChip').innerHTML='<span class="dot '+(on?'dot-on':'dot-off')+'"></span>'+(on?'В комнате':'Нет связи');
+  $('netBanner').classList.toggle('hidden',on||!S.room);
+}
+function onEvent(m){
+  switch(m.t){
+    case 'join':
+      if(S.role!=='host') return;
+      if(m.name){S.connections[m.cid]=m.name;
+        if(!S.participants.find(p=>p.name===m.name)){S.participants.push({name:m.name,score:0}); saveParticipants();}
+        toast('👥 Подключился: '+m.name); pub({t:'participants',names:S.participants.map(p=>p.name)});
+      }
+      break;
+    case 'participants':
+      S.participants=m.names.map(n=>({name:n,score:(S.participants.find(p=>p.name===n)||{}).score||0}));
+      drawWheel(); renderScores(); break;
+    case 'scores':
+      S.participants=m.list; drawWheel(); renderScores(); break;
+    case 'winner':
+      highlight(m.idx); showPlaque('Выпал: '+m.name); if(S.role==='host') state.lastWinnerName=m.name; break;
+    case 'task_public': openTaskModal(m); break;
+    case 'task_term_hidden':
+      showTermHiddenPlaque(m.name); break;
+    case 'task_term': if(S.role==='participant'&&m.cid===CLIENT_ID) showTermPopup(m); break;
+    case 'timer': applyTimerEvent(m); break;
+    case 'ready': onReadyEvent(m); break;
+    case 'pass': onPassEvent(m); break;
+    case 'answer': if(S.lastCard) $('taskModal').innerHTML+='<div class="answer-line">Ответ: '+esc(m.answer)+'</div>'; break;
+    case 'record': S.record={name:m.name,count:m.count}; lsSet('wof_record',S.record); renderRecord(); break;
+    case 'whois':
+      if(mqttClient&&S.room) pub({t:'presence',name:S.role==='host'?'Ведущий':S.myName,role:S.role,cid:CLIENT_ID});
+      break;
+    case 'presence':
+      S.online[m.cid]={name:m.name,role:m.role,ts:Date.now()};
+      if(m.role==='participant') S.connections[m.cid]=m.name;
+      if(S.role==='host'&&m.role==='participant'&&m.name&&!S.participants.find(p=>p.name===m.name)){
+        S.participants.push({name:m.name,score:0}); saveParticipants();
+        pub({t:'participants',names:S.participants.map(p=>p.name)});
+        pub({t:'scores',list:S.participants});
+        $('namesArea').value=S.participants.map(p=>p.name).join('\n');
+        toast('👥 Подключился: '+m.name+' — добавлен на колесо');
+      }
+      if(S.role==='host') renderOnline();
+      break;
+    case 'bye': break;
+  }
+}
+function onPrivate(m){
+  if(m.t==='task_term') showTermPopup(m);
+}
+function esc(s){const d=document.createElement('div'); d.textContent=s; return d.innerHTML}
+
+/* ===== РАЗДЕЛ: КОЛЕСО ===== */
+const COLORS=['#ffcc4d','#ff6b6b','#4dd599','#5a8bff','#b388ff','#4dd0e1','#ff9f43'];
+function drawWheel(){
+  const cv=$('wheel'), ctx=cv.getContext('2d');
+  const names=S.participants.map(p=>p.name);
+  $('wheelHint').classList.toggle('hidden',names.length>0);
+  ctx.clearRect(0,0,420,420);
+  const cx=210, cy=210, R=195, seg=2*Math.PI/Math.max(names.length,1);
+  if(!names.length) return;
+  for(let i=0;i<names.length;i++){
+    const a0=wheelRot+i*seg, a1=a0+seg;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,R,a0,a1); ctx.closePath();
+    ctx.fillStyle=COLORS[i%COLORS.length]; ctx.fill();
+    if(i===highlightIdx){ctx.strokeStyle='#fff'; ctx.lineWidth=5; ctx.stroke();}
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(a0+seg/2);
+    ctx.fillStyle=names.length>6?'#101423':'#1a1408';
+    ctx.font='bold 16px Segoe UI'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    let label=names[i]; if(label.length>14) label=label.slice(0,13)+'…';
+    ctx.fillText(label,R-12,0); ctx.restore();
+  }
+  ctx.beginPath(); ctx.arc(cx,cy,26,0,2*Math.PI); ctx.fillStyle='#101423'; ctx.fill();
+  ctx.strokeStyle='#ffcc4d'; ctx.lineWidth=4; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx-12,8); ctx.lineTo(cx+12,8); ctx.lineTo(cx,34); ctx.closePath();
+  ctx.fillStyle='#ffcc4d'; ctx.fill();
+}
+function spin(){
+  const names=S.participants.map(p=>p.name);
+  if(!names.length){toast('Добавьте участников в панели ведущего'); return;}
+  if(spinAnim) return;
+  $('preSpinText').textContent='';
+  const idx=Math.floor(Math.random()*names.length), seg=2*Math.PI/names.length;
+  const dir=S.direction==='cw'?1:-1;
+  let target=-Math.PI/2-(idx+0.5)*seg;
+  if(dir===1){while(target<wheelRot+4*Math.PI) target+=2*Math.PI;}
+  else{while(target>wheelRot-4*Math.PI) target-=2*Math.PI;}
+  const from=wheelRot, dur=4200, t0=performance.now();
+  function frame(now){
+    const p=Math.min((now-t0)/dur,1), e=1-Math.pow(1-p,4);
+    wheelRot=from+(target-from)*e; drawWheel();
+    if(p<1) spinAnim=requestAnimationFrame(frame);
+    else{spinAnim=null; onWheelStop(idx);}
+  }
+  spinAnim=requestAnimationFrame(frame);
+}
+function onWheelStop(idx){
+  const name=S.participants[idx].name;
+  S.lastWinnerName=name; highlightIdx=idx; drawWheel();
+  showPlaque('Выпал: '+name);
+  pub({t:'winner',name,idx});
+}
+function highlight(idx){highlightIdx=idx; drawWheel();}
+function showPlaque(text){
+  const p=$('plaque'); p.textContent=text; p.classList.add('show');
+}
+function showTermHiddenPlaque(name){
+  showPlaque('');
+  $('plaque').innerHTML='🤫 <b>'+esc(name)+'</b> получил задание. Термин скрыт от зала';
+  $('plaque').classList.add('show');
+}
+
+/* ===== РАЗДЕЛ: ИГРЫ И ВЫДАЧА ЗАДАНИЯ ===== */
+function pickUnused(arr,used){
+  const free=arr.map((c,i)=>i).filter(i=>!used.includes(i));
+  if(!free.length) return -1;
+  return free[Math.floor(Math.random()*free.length)];
+}
+function dealTask(){
+  const kind=$('gameSel').value;
+  if(kind==='term'){
+    const idx=pickUnused(TERMS,S.usedTerms);
+    if(idx<0){toast('Термины закончились — сбросьте использованные карточки'); return;}
+    const card=TERMS[idx];
+    const oc=Object.keys(S.online).find(c=>S.online[c].name===S.lastWinnerName&&S.online[c].role==='participant');
+    const cid=oc||Object.keys(S.connections).find(c=>S.connections[c]===S.lastWinnerName);
+    if(!S.lastWinnerName){toast('Сначала крутите колесо'); return;}
+    if(!cid){toast('Участник не в комнате — покажите ему код комнаты'); return;}
+    S.usedTerms.push(idx); lsSet('wof_usedTerms',S.usedTerms);
+    S.sessionLog.push('Термин: '+card.term+' ('+card.topic+')');
+    S.lastCard={kind:'term',...card};
+    pub({t:'task_term_hidden',name:S.lastWinnerName});
+    pub({t:'task_term',cid,term:card.term,banned:card.banned,topic:card.topic},{to:cid});
+    openTaskModal({kind:'term',name:S.lastWinnerName,term:card.term,banned:card.banned});
+  }else if(kind==='category'){
+    const idx=pickUnused(CATEGORIES,S.usedCats);
+    if(idx<0){toast('Категории закончились — сбросьте использованные карточки'); return;}
+    const card=CATEGORIES[idx];
+    S.usedCats.push(idx); lsSet('wof_usedCats',S.usedCats);
+    S.sessionLog.push('Категория: '+card.name); S.lastGameKind='category';
+    pub({t:'task_public',kind:'category',title:'Назови как можно больше:',text:card.name,cardId:idx});
+    openTaskModal({kind:'category',title:'Назови как можно больше:',text:card.name});
+  }else{
+    const idx=pickUnused(ANAGRAMS,S.usedAnags);
+    if(idx<0){toast('Анаграммы закончились — сбросьте использованные карточки'); return;}
+    const card=ANAGRAMS[idx];
+    S.usedAnags.push(idx); lsSet('wof_usedAnags',S.usedAnags);
+    S.sessionLog.push('Анаграмма: '+card.answer); S.lastGameKind='anagram';
+    const payload={kind:'anagram',level:card.level,code:card.code,answer:card.answer,note:card.note,isPhrase:card.isPhrase};
+    pub({t:'task_public',...payload,cardId:idx});
+    openTaskModal(payload);
+  }
+}
+function openTaskModal(m){
+  S.lastCard=m; S.lastGameKind=m.kind;
+  let html='<h2 id="tmTitle"></h2>';
+  if(m.kind==='term'){
+    html+='<div class="hidden-plaque">🙈 Термин скрыт от зала</div>'
+      +'<p class="task-big">Код раунда не нужен: задание уже отправлено на устройство участника</p>'
+      +'<p class="muted">Объясняющий: <b>'+esc(m.name)+'</b>. Термин вы видите здесь:</p>'
+      +'<div class="task-big">'+esc(m.term)+'</div>'
+      +'<div class="banned">Нельзя: '+esc(m.banned.join(', ')||'—')+'</div>'
+      +'<p class="muted wheel-mini-note">Зал видит только надпись «задание отправлено». Чтобы видеть термин самому, этот экран и есть ваша копия.</p>';
+    html+=timerControls(30)+'<div class="status-line" id="tmStatus"></div>';
+    html+='<button class="btn btn-ok" onclick="hostReady()">✅ Готово</button>'
+        +'<button class="btn" onclick="hostPass()">Пас</button>'
+        +'<button class="btn btn-ghost" onclick="closeTask()">✕ Закрыть</button>';
+  }else if(m.kind==='category'){
+    html+='<p class="task-note">60 секунд, повторы не считаются</p>'
+      +'<div class="task-big">'+esc(m.title)+'<br>'+esc(m.text)+'</div>'
+      +timerControls(60)
+      +'<div class="status-line" id="tmStatus"></div>'
+      +'<button class="btn btn-ok" onclick="hostReady()">✅ Готово</button>'
+      +'<button class="btn" onclick="hostPass()">Пас</button>'
+      +'<button class="btn btn-ghost" onclick="closeTask()">✕ Закрыть</button>';
+  }else{
+    html+='<p class="task-note">Уровень: '+esc(m.level)+(m.isPhrase?' — порядок слов':'')+'</p>'
+      +'<div class="task-big">'+esc(m.code)+'</div>'
+      +(m.note?'<p class="task-note">'+esc(m.note)+'</p>':'')
+      +'<button class="btn btn-primary" onclick="revealAnswer()">Показать ответ</button>'
+      +'<div id="answerBox"></div>'
+      +'<div style="margin-top:12px">'
+      +'<button class="btn btn-ok" onclick="hostReady()">✅ Готово</button>'
+      +'<button class="btn" onclick="hostPass()">Пас</button>'
+      +'<button class="btn btn-ghost" onclick="closeTask()">✕ Закрыть</button></div>';
+  }
+  $('taskModal').innerHTML=html;
+  const titles={term:'🙈 Задание отправлено',category:'🎲 Задание',anagram:'🧩 Расшифруй перемешанное'};
+  $('tmTitle').textContent=titles[m.kind];
+  $('taskOverlay').classList.remove('hidden');
+}
+function timerControls(dur){
+  return '<div class="timer-box" style="margin:14px 0">'
+    +'<div class="timer-ring"><svg width="130" height="130">'
+    +'<circle cx="65" cy="65" r="54" fill="none" stroke="#2a3354" stroke-width="10"/>'
+    +'<circle class="modal-ring" cx="65" cy="65" r="54" fill="none" stroke="#ffcc4d" stroke-width="10" stroke-linecap="round" stroke-dasharray="339.3" stroke-dashoffset="0"/></svg>'
+    +'<div class="timer-num modal-timer" id="modalTimer">'+fmt(dur)+'</div></div></div>'
+    +'<button class="btn btn-primary" onclick="hostTimerStart('+dur+')">▶ Старт '+dur+' сек</button> '
+    +'<button class="btn" onclick="hostTimerPause()">⏸ Пауза</button>';
+}
+function revealAnswer(){
+  if(!S.lastCard) return;
+  pub({t:'answer',answer:S.lastCard.answer});
+  $('taskModal').innerHTML+='<div class="answer-line">Ответ: '+esc(S.lastCard.answer)+'</div>';
+}
+function closeTask(){$('taskOverlay').classList.add('hidden'); S.lastCard=null;}
+function hostReady(){
+  const n=S.lastWinnerName||'участник';
+  if(S.lastGameKind==='category') toast('Готово! Запишите рекорд в таблице справа');
+  else toast('✅ '+n+' — готово. Ставьте баллы в таблице');
+  $('tmStatus').textContent='✅ Готово';
+}
+function hostPass(){
+  const n=S.lastWinnerName||'участник';
+  S.passes[n]=(S.passes[n]||0)+1;
+  toast('Пас: '+n+' ('+S.passes[n]+'/1 за эфир)');
+  $('tmStatus').textContent='Пас';
+  if(S.passes[n]>1) toast('Внимание: у '+n+' это уже не первый пас за эфир');
+}
+
+/* ===== РАЗДЕЛ: ТАЙМЕР ===== */
+let T={endAt:0,remain:0,paused:false,int:null};
+function fmt(sec){const m=Math.floor(sec/60),s=sec%60; return (m<10?'0':'')+m+':'+(s<10?'0':'')+s}
+function hostTimerStart(dur){
+  pub({t:'timer',action:'start',dur}); localTimerStart(dur);
+}
+function hostTimerPause(){
+  if(T.endAt&&!T.paused){T.remain=Math.max(0,Math.round((T.endAt-Date.now())/1000)); T.paused=true;
+    pub({t:'timer',action:'pause',remain:T.remain});}
+}
+function hostTimerReset(){
+  pub({t:'timer',action:'reset',dur:30}); localTimerReset(30);
+}
+function localTimerStart(dur){
+  T.endAt=Date.now()+dur*1000; T.remain=dur; T.paused=false; runTick();
+}
+function localTimerReset(dur){
+  clearInterval(T.int); T.endAt=0; T.remain=dur; T.paused=false; paintTimer(dur,false);
+}
+function applyTimerEvent(m){
+  if(m.action==='start') localTimerStart(m.dur);
+  else if(m.action==='pause'){T.remain=m.remain; T.paused=true; clearInterval(T.int); paintTimer(m.remain,false);}
+  else if(m.action==='reset') localTimerReset(m.dur);
+}
+function paintTimer(remain,warn){
+  const texts=document.querySelectorAll('#timerNum,.modal-timer');
+  texts.forEach(e=>{e.textContent=fmt(remain); e.classList.toggle('warn',warn)});
+  const rings=document.querySelectorAll('#ring,.modal-ring');
+  const frac=Math.min(remain/60,1);
+  rings.forEach(r=>r.setAttribute('stroke-dashoffset',String(339.3*(1-frac))));
+}
+let lastBeepSec=-1;
+function runTick(){
+  clearInterval(T.int);
+  T.int=setInterval(()=>{
+    if(T.paused) return;
+    const remain=Math.max(0,Math.ceil((T.endAt-Date.now())/1000));
+    paintTimer(remain,remain<=5&&remain>0);
+    if(remain<=5&&remain>0&&remain!==lastBeepSec){beep(880,0.1); lastBeepSec=remain;}
+    if(remain<=0){
+      clearInterval(T.int); lastBeepSec=-1;
+      beep(660,0.15); setTimeout(()=>beep(660,0.15),200); setTimeout(()=>beep(990,0.3),400);
+      const st=$('tmStatus'); if(st) st.textContent='⏰ Время вышло!';
+    }
+  },100);
+}
+function beep(freq,dur){
+  try{
+    if(!window._ac) window._ac=new (window.AudioContext||window.webkitAudioContext)();
+    const o=window._ac.createOscillator(),g=window._ac.createGain();
+    o.frequency.value=freq; o.type='sine'; g.gain.value=0.12;
+    o.connect(g); g.connect(window._ac.destination);
+    o.start(); o.stop(window._ac.currentTime+dur);
+  }catch(e){}
+}
+
+/* ===== РАЗДЕЛ: ПОПАП УЧАСТНИКА (ТЕРМИН) ===== */
+function showTermPopup(m){
+  let html='<h2>🙈 Только для вас: объясните термин, не называя его</h2>'
+    +'<div class="task-big">'+esc(m.term)+'</div>'
+    +'<div class="banned">Нельзя: '+esc(m.banned.join(', ')||'—')+'</div>'
+    +'<div class="timer-box" style="margin:14px 0">'
+    +'<div class="timer-ring"><svg width="130" height="130">'
+    +'<circle cx="65" cy="65" r="54" fill="none" stroke="#2a3354" stroke-width="10"/>'
+    +'<circle class="pop-ring" cx="65" cy="65" r="54" fill="none" stroke="#ffcc4d" stroke-width="10" stroke-linecap="round" stroke-dasharray="339.3" stroke-dashoffset="0"/></svg>'
+    +'<div class="timer-num pop-timer">00:30</div></div></div>'
+    +'<div class="status-line" id="popStatus"></div>'
+    +'<button class="btn btn-ok" onclick="participantReady()">✅ Готово</button>'
+    +'<button class="btn" onclick="participantPass()">Пас</button>';
+  $('taskModal').innerHTML=html;
+  $('taskOverlay').classList.remove('hidden');
+  S.lastCard=m;
+}
+function participantReady(){
+  pub({t:'ready',name:S.myName}); $('popStatus').textContent='Ведущий уведомлён ✅';
+}
+function participantPass(){
+  pub({t:'pass',name:S.myName}); $('popStatus').textContent='Пас передан ведущему';
+}
+function onReadyEvent(m){
+  if(S.role==='host') toast('✅ '+m.name+' — готово. Ставьте баллы в таблице');
+}
+function onPassEvent(m){
+  if(S.role!=='host') return;
+  S.passes[m.name]=(S.passes[m.name]||0)+1;
+  toast('Пас от '+m.name+(S.passes[m.name]>1?' (внимание: уже '+S.passes[m.name]+'-й)':' (1-й за эфир)'));
+  const st=$('tmStatus'); if(st) st.textContent='Пас от '+m.name;
+}
+
+/* ===== РАЗДЕЛ: РЕЙТИНГ ===== */
+function renderScores(){
+  const sorted=[...S.participants].sort((a,b)=>b.score-a.score);
+  $('scoreBody').innerHTML=sorted.map((p,i)=>
+    '<tr'+(i===0&&p.score>0?' class="leader"':'')+'><td>'+esc(p.name)+'</td><td>'+p.score+'</td>'
+    +'<td class="host-only '+(S.role==='host'?'':'hidden')+'">'
+    +'<button class="score-btn plus" onclick="addScore(\''+esc(p.name)+'\',1)">+</button> '
+    +'<button class="score-btn minus" onclick="addScore(\''+esc(p.name)+'\',-1)">−</button></td></tr>').join('')
+    ||'<tr><td colspan="3" class="muted">Пока никого нет</td></tr>';
+}
+function addScore(name,d){
+  const p=S.participants.find(x=>x.name===name); if(!p) return;
+  p.score+=d; saveParticipants(); pub({t:'scores',list:S.participants});
+}
+function saveParticipants(){lsSet('wof_participants',S.participants); renderScores(); drawWheel();}
+function resetScores(){
+  if(!confirm('Обнулить все баллы и пасы?')) return;
+  S.participants.forEach(p=>p.score=0); S.passes={};
+  saveParticipants(); pub({t:'scores',list:S.participants});
+}
+function exportCSV(){
+  const sorted=[...S.participants].sort((a,b)=>b.score-a.score);
+  const csv='\uFEFFИмя;Баллы\n'+sorted.map(p=>p.name+';'+p.score).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download='рейтинг.csv'; a.click();
+}
+function setRecord(){
+  const name=$('recName').value.trim(), count=parseInt($('recNum').value,10);
+  if(!name||isNaN(count)){toast('Укажите имя и число'); return;}
+  if(S.record&&S.record.count>=count){toast('Текущий рекорд выше: '+S.record.name+' — '+S.record.count); return;}
+  S.record={name,count}; lsSet('wof_record',S.record);
+  pub({t:'record',name,count}); renderRecord(); toast('🏅 Рекорд недели: '+name+' — '+count);
+}
+function renderRecord(){
+  $('recordBoard').textContent=S.record
+    ?'🏅 Рекорд недели: '+S.record.name+' — '+S.record.count
+    :'🏅 Рекорд недели: —';
+}
+
+/* ===== РАЗДЕЛ: ПАНЕЛЬ ВЕДУЩЕГО ===== */
+function toggleAcc(btn){btn.parentElement.classList.toggle('acc-open')}
+function renderOnline(){
+  const el=$('onlineList'); if(!el) return;
+  const now=Date.now(), names=[];
+  for(const c in S.online){ const o=S.online[c]; if(now-o.ts<15000&&o.role==='participant') names.push(o.name); }
+  el.textContent = names.length ? '👥 В комнате: '+names.join(', ')
+    : '👥 В комнате: пока никто — участники открывают сайт и входят по коду';
+}
+function applyNames(){
+  const names=[...new Set($('namesArea').value.split('\n').map(s=>s.trim()).filter(Boolean))];
+  if(!names.length){toast('Добавьте участников в панели ведущего'); return;}
+  const old={}; S.participants.forEach(p=>old[p.name]=p.score);
+  S.participants=names.map(n=>({name:n,score:old[n]||0}));
+  saveParticipants(); pub({t:'participants',names}); pub({t:'scores',list:S.participants});
+  toast('Список применён: '+names.length+' участн.');
+}
+function refreshBankCounts(){
+  const el=$('bankCounts');
+  if(el) el.textContent='Осталось: терминов '+(TERMS.length-S.usedTerms.length)
+    +', категорий '+(CATEGORIES.length-S.usedCats.length)+', анаграмм '+(ANAGRAMS.length-S.usedAnags.length);
+}
+function saveBank(){
+  const t=$('termsArea').value.trim(), c=$('catsArea').value.trim(), a=$('anagArea').value.trim();
+  if(!t&&!c&&!a){toast('Заполните хотя бы один раздел банка'); return;}
+  if(t){
+    const lines=t.split('\n').map(s=>s.trim()).filter(Boolean);
+    lines.forEach(line=>{const [w,b]=line.split('|'); TERMS.push({topic:'Свой',term:w.trim(),banned:b?b.split(',').map(x=>x.trim()).filter(Boolean):[]})});
+  }
+  if(c) c.split('\n').map(s=>s.trim()).filter(Boolean).forEach(n=>CATEGORIES.push({topic:'Свой',name:n}));
+  if(a) a.split('\n').map(s=>s.trim()).filter(Boolean).forEach(line=>{
+    const m=line.match(/^\[([^\]]+)\]\s*(.+?)\s*=\s*(.+)$/);
+    if(m){let answer=m[3].trim(),note='';const nm=answer.match(/^(.*?)\s*\((.*)\)\s*$/);if(nm){answer=nm[1];note=nm[2];}
+      ANAGRAMS.push({topic:'Свой',level:m[1].trim(),isPhrase:m[1].includes('порядок слов'),code:m[2].trim(),answer,note});}
+    else toast('Строка анаграмм не распознана: '+line.slice(0,30));
+  });
+  S.usedTerms=[];S.usedCats=[];S.usedAnags=[];
+  lsSet('wof_usedTerms',[]);lsSet('wof_usedCats',[]);lsSet('wof_usedAnags',[]);
+  refreshBankCounts(); toast('Банк сохранён. Использованные карточки сброшены');
+}
+function resetUsed(){
+  S.usedTerms=[];S.usedCats=[];S.usedAnags=[];
+  lsSet('wof_usedTerms',[]);lsSet('wof_usedCats',[]);lsSet('wof_usedAnags',[]);
+  refreshBankCounts(); toast('Все карточки снова в игре');
+}
+function changePin(){
+  const old=$('oldPin').value.trim(), nw=$('newPin').value.trim();
+  if(old!==lsGet('wof_pin','0000')){toast('Старый PIN неверен'); return;}
+  if(!nw){toast('Введите новый PIN'); return;}
+  lsSet('wof_pin',nw); toast('PIN изменён'); $('oldPin').value=''; $('newPin').value='';
+}
+
+/* ===== РАЗДЕЛ: СЕКРЕТНАЯ ПАНЕЛЬ ===== */
+function openSecret(){
+  let html='<h2>🔑 Секретная панель</h2>'
+    +'<p class="task-note">Выдано за сессию: '+S.sessionLog.length+' · Осталось: терминов '
+    +(TERMS.length-S.usedTerms.length)+', категорий '+(CATEGORIES.length-S.usedCats.length)
+    +', анаграмм '+(ANAGRAMS.length-S.usedAnags.length)+'</p>';
+  html+=S.sessionLog.length
+    ?'<div style="text-align:left; max-height:280px; overflow:auto">'+S.sessionLog.map(esc).join('<br>')+'</div>'
+    :'<p class="muted">Заданий ещё не было</p>';
+  html+='<p class="task-note">Пасы: '+Object.keys(S.passes).map(n=>esc(n)+' ('+S.passes[n]+')').join(', ')||'—';
+  html+='</p><button class="btn btn-primary" onclick="closeTask()">✕ Закрыть</button>';
+  $('taskModal').innerHTML=html;
+  $('taskOverlay').classList.remove('hidden');
+}
+
+/* ===== РАЗДЕЛ: СТАРТ ===== */
+$('dirSel').addEventListener('change',e=>{S.direction=e.target.value; lsSet('wof_dir',S.direction)});
+$('gameSel').addEventListener('change',e=>{
+  $('gameLabel').textContent=e.target.options[e.target.selectedIndex].text;
+});
+window.addEventListener('beforeunload',()=>{if(S.role==='participant'&&mqttClient) pub({t:'leave',cid:CLIENT_ID})});
+renderRecord();
+drawWheel();
+</script>
+</body>
+</html>
